@@ -43,7 +43,7 @@ class Predictor():
         num_poses=1,
         sample_algorithm='ddim',
         nsteps=100,
-
+        output_dir=None
         ):
         """Run a single prediction on the model"""
 
@@ -61,7 +61,6 @@ class Predictor():
             xs, x0_preds = ddim_steps(noise, seq, self.model, self.betas.cuda(), [src, tgt_pose])
             samples = xs[-1].cuda()
 
-
         samples_grid = torch.cat([src[0],torch.cat([samps for samps in samples], -1)], -1)
         samples_grid = (torch.clamp(samples_grid, -1., 1.) + 1.0)/2.0
         pose_grid = torch.cat([torch.zeros_like(src[0]),torch.cat([samps[:3] for samps in tgt_pose], -1)], -1)
@@ -70,8 +69,16 @@ class Predictor():
 
         numpy_imgs = output.unsqueeze(0).permute(0,2,3,1).detach().cpu().numpy()
         fake_imgs = (255*numpy_imgs).astype(np.uint8)
-        Image.fromarray(fake_imgs[0]).save('output.png')
 
+        if not output_dir:
+            Image.fromarray(fake_imgs[0]).save('output.png')
+        else:
+            output_dir_full_path = os.path.join(os.getcwd(), output_dir)
+            if not os.path.isdir(output_dir_full_path):
+                os.mkdir(output_dir_full_path)
+            for idx, img in enumerate(fake_imgs):
+                output_full_path = os.path.join(output_dir_full_path, f"pose_{idx+1}_output.png")
+                Image.fromarray(img).save(output_full_path)
 
     def predict_appearance(
         self,
@@ -81,7 +88,7 @@ class Predictor():
         ref_pose,
         sample_algorithm='ddim',
         nsteps=100,
-
+        output_dir=None
         ):
         """Run a single prediction on the model"""
 
@@ -103,14 +110,23 @@ class Predictor():
             xs, x0_preds = ddim_steps(noise, seq, self.model, self.betas.cuda(), [src, pose, ref, mask], diffusion=self.diffusion)
             samples = xs[-1].cuda()
 
-
         samples = torch.clamp(samples, -1., 1.)
 
         output = (torch.cat([src, ref, mask*2-1, samples], -1) + 1.0)/2.0
 
         numpy_imgs = output.permute(0,2,3,1).detach().cpu().numpy()
         fake_imgs = (255*numpy_imgs).astype(np.uint8)
-        Image.fromarray(fake_imgs[0]).save('output.png')
+
+        if not output_dir:
+            Image.fromarray(fake_imgs[0]).save('output.png')
+        else:
+            output_dir_full_path = os.path.join(os.getcwd(), output_dir)
+            if not os.path.isdir(output_dir_full_path):
+                os.mkdir(output_dir_full_path)
+            for idx, img in enumerate(fake_imgs):
+                output_full_path = os.path.join(output_dir_full_path, f"pose_{idx+1}_output.png")
+                Image.fromarray(img).save(output_full_path)
+
 
 if __name__ == "__main__":
 
