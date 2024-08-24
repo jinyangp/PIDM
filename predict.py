@@ -92,13 +92,17 @@ class Predictor():
         ):
         """Run a single prediction on the model"""
 
+        INPUT_WIDTH, INPUT_HEIGHT = 256, 256
         src = Image.open(image)
         src = self.transforms(src).unsqueeze(0).cuda()
         
-        ref = Image.open(ref_img)
+        ref = Image.open(ref_img).convert("RGB")
         ref = self.transforms(ref).unsqueeze(0).cuda()
 
-        mask = transforms.ToTensor()(Image.open(ref_mask)).unsqueeze(0).cuda()
+        ref_mask_pil = Image.open(ref_mask)
+        if ref_mask_pil.size != (INPUT_WIDTH, INPUT_HEIGHT):
+            ref_mask_pil = ref_mask_pil.resize((INPUT_WIDTH, INPUT_HEIGHT))
+        mask = transforms.ToTensor()(ref_mask_pil).unsqueeze(0).cuda()
         pose =  transforms.ToTensor()(np.load(ref_pose)).unsqueeze(0).cuda()
 
 
@@ -112,6 +116,9 @@ class Predictor():
 
         samples = torch.clamp(samples, -1., 1.)
 
+        # print(mask.shape)
+        if mask.shape[1] == 1:
+            mask = mask.repeat(1, 3, 1, 1)
         output = (torch.cat([src, ref, mask*2-1, samples], -1) + 1.0)/2.0
 
         numpy_imgs = output.permute(0,2,3,1).detach().cpu().numpy()
