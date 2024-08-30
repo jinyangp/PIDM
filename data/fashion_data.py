@@ -167,6 +167,11 @@ class Dataset(Dataset):
         img = trans(img)
         return img, param
 
+    '''
+    NOTE: first 3 channels is RGB image with drawn keypoints and limbs and
+    next 17 channels are distance transform map for each of the 17 limbs.
+    total of 20 channels.
+    '''
     def get_label_tensor(self, path, img, param):
         canvas = np.zeros((img.shape[1], img.shape[2], 3)).astype(np.uint8)
         keypoint = np.loadtxt(path)
@@ -206,7 +211,7 @@ class Dataset(Dataset):
             im_dist = np.clip((im_dist / 3), 0, 255).astype(np.uint8)
             tensor_dist = F.to_tensor(Image.fromarray(im_dist))
             tensors_dist = tensor_dist if e == 1 else torch.cat([tensors_dist, tensor_dist])
-            e += 1
+            e += 1  
 
         label_tensor = torch.cat((pose, tensors_dist), dim=0)
         if int(keypoint[14, 0]) != -1 and int(keypoint[15, 0]) != -1:
@@ -222,19 +227,23 @@ class Dataset(Dataset):
         missing_keypoint_index = keypoints == -1
         
         # crop the white line in the original dataset
+        # NOTE: move all x coordinates to left by 40
         keypoints[:,0] = (keypoints[:,0]-40)
 
         # resize the dataset
+        # NOTE: This is becaue original openpose was meant to work with
+        # images of (height, width) = (256,176)
         img_h, img_w = img_size
         scale_w = 1.0/176.0 * img_w
         scale_h = 1.0/256.0 * img_h
 
+        # NOTE: Scale to new image size
         if 'scale_size' in param and param['scale_size'] is not None:
             new_h, new_w = param['scale_size']
             scale_w = scale_w / img_w * new_w
             scale_h = scale_h / img_h * new_h
         
-
+        # NOTE: Crop out specific parts
         if 'crop_param' in param and param['crop_param'] is not None:
             w, h, _, _ = param['crop_param']
         else:
