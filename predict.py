@@ -49,7 +49,6 @@ class Predictor():
 
         src = Image.open(image)
         src = self.transforms(src).unsqueeze(0).cuda()
-        # TODO: Include an option to get the pose from each of the input csv files, and then generate them
         if len(self.pose_list) == num_poses:
             tgt_pose = torch.stack([transforms.ToTensor()(np.load(ps)).cuda() for ps in self.pose_list], 0)
         else:
