@@ -79,7 +79,8 @@ def get_pose_np(img_filepath: str,
     
     # STEP: Get pose map np array
     ref_img_np, face_center_np = get_label_tensor(keypoint_array, ref_img, augment_params)
-    
+    ref_img_np = np.transpose(ref_img_np, (1,2,0))
+
     # STEP: Save to local file directory if output_dir provided
     if output_dir:
         output_dir = os.path.join(os.getcwd(), output_dir)

@@ -19,7 +19,7 @@ import torchvision.transforms as transforms
 import torchvision
 
 class Predictor():
-    def __init__(self):
+    def __init__(self, pose_list_dir="data/deepfashion_256x256/target_pose"):
         """Load the model into memory to make running multiple predictions efficient"""
 
         conf = DiffConfig(DiffusionConfig, './config/diffusion.conf', show=False)
@@ -33,7 +33,7 @@ class Predictor():
         self.betas = conf.diffusion.beta_schedule.make()
         self.diffusion = create_gaussian_diffusion(self.betas, predict_xstart = False)#.to(device)
         
-        self.pose_list = glob.glob('data/deepfashion_256x256/target_pose/*.npy')
+        self.pose_list = glob.glob(pose_list_dir + "/*.npy")
         self.transforms = transforms.Compose([transforms.Resize((256,256), interpolation=Image.BICUBIC),
                             transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5),
                                                 (0.5, 0.5, 0.5))])
@@ -49,7 +49,11 @@ class Predictor():
 
         src = Image.open(image)
         src = self.transforms(src).unsqueeze(0).cuda()
-        tgt_pose = torch.stack([transforms.ToTensor()(np.load(ps)).cuda() for ps in np.random.choice(self.pose_list, num_poses)], 0)
+        # TODO: Include an option to get the pose from each of the input csv files, and then generate them
+        if len(self.pose_list) == num_poses:
+            tgt_pose = torch.stack([transforms.ToTensor()(np.load(ps)).cuda() for ps in self.pose_list], 0)
+        else:
+            tgt_pose = torch.stack([transforms.ToTensor()(np.load(ps)).cuda() for ps in np.random.choice(self.pose_list, num_poses)], 0)
 
         src = src.repeat(num_poses,1,1,1)
 
