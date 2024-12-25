@@ -48,7 +48,7 @@ class Predictor():
         # self.pose_list = glob.glob(pose_list_dir + "/*.npy")
         self.image_root =  os.path.join(os.getcwd(), "data", "imgs")
         os.makedirs(self.image_root, exist_ok=True)
-        self.annotations_file = pd.read_csv(os.path.join(os.getcwd(), annotations_filepath), sep=':')
+        self.annotation_file = pd.read_csv(os.path.join(os.getcwd(), annotations_filepath), sep=':')
         self.annotation_file = self.annotation_file.set_index('name')
 
         self.output_root_dir = os.path.join(os.getcwd(), "demo", "outputs")
@@ -56,8 +56,8 @@ class Predictor():
         self.transforms = transforms.Compose([transforms.Resize((256,256), interpolation=Image.BICUBIC),
                             transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5),
                                                 (0.5, 0.5, 0.5))])
-        self.INPUT_WIDTH = 512
-        self.INPUT_HEIGHT = 512
+        self.INPUT_WIDTH = 256
+        self.INPUT_HEIGHT = 256
 
     def load_pose_cords_from_strings(self, y_str, x_str):
         
@@ -172,14 +172,13 @@ class Predictor():
         ref_img_transforms = get_transform(augment_params)
         image = ref_img_transforms(image)
 
-        keypoint_string = self.annotation_file.loc[os.path.basename(image_fp)]
+        keypoint_string = self.annotation_file.loc[(os.path.basename(image_fp) + ".jpg")]
         keypoint_array = self.load_pose_cords_from_strings(keypoint_string['keypoints_y'], keypoint_string['keypoints_x'])
         
         # STEP: Get pose map np array
-        img_np, face_center_np = self.get_label_tensor(keypoint_array, image, augment_params)
-        img_np = np.transpose(img_np, (1,2,0))
+        img_tensor, face_center_tensor = self.get_label_tensor(keypoint_array, image, augment_params)
 
-        return img_np
+        return img_tensor
 
     def resize_img(self,
                    img: Image.Image,
@@ -200,7 +199,6 @@ class Predictor():
 
         # STEP: Settle input/output directories
         image_root = Path(self.image_root)
-        pose_root = Path(self.pose_root)
 
         output_dir = os.path.join(self.output_root_dir, project_name)
         samples_dir = os.path.join(output_dir, "samples")
@@ -223,8 +221,8 @@ class Predictor():
             # STEP: Get pose.npy file from the target image
             target = Image.open(target_img_fp)
             converted_target_fn = convert_fname(row['to'])
-            target_np = self.get_pose_np(converted_target_fn, target)        
-            target_pose = torch.stack([transforms.ToTensor()(np.load(target_np)).cuda()], 0)
+            target_tensor = self.get_pose_np(converted_target_fn, target)
+            target_pose = torch.stack([target_tensor.cuda()], 0)
 
             if sample_algorithm == 'ddpm':
                 samples = self.diffusion.p_sample_loop(self.model, x_cond = [src, target_pose], progress = True, cond_scale = 2)
@@ -235,27 +233,29 @@ class Predictor():
                 samples = xs[-1].cuda()
 
             # clamps range to [-1,1] and scales it to [0,1]
+            # (1,3,256,256)
             samples = (torch.clamp(samples, -1., 1.) + 1.0)/2.0
 
             # STEP: Save the sample
+            samples = samples.squeeze(0)
             samples_pil = transforms.ToPILImage()(samples)
-            
+            samples_pil.save(os.path.join(samples_dir, f'{fname}.{f_ext}'))
+
             src_pil = Image.open(src_img_fp)
             src_pil = self.resize_img(src_pil, self.INPUT_WIDTH, self.INPUT_HEIGHT)
-            src_pil = torch.tensor(np.array(src_pil)).permute(2,0,1)
+            src_tensor = torch.tensor(np.array(src_pil)).permute(2,0,1)
             
             target_pil = Image.open(target_img_fp)
             target_pil = self.resize_img(target_pil, self.INPUT_WIDTH, self.INPUT_HEIGHT)
-            target_pil = torch.tensor(np.array(target_pil)).permute(2,0,1)
+            target_tensor = torch.tensor(np.array(target_pil)).permute(2,0,1)
             
             samples_pil = self.resize_img(samples_pil, self.INPUT_WIDTH, self.INPUT_HEIGHT)
-            samples_pil = torch.tensor(np.array(samples_pil)).permute(2,0,1)
+            samples_tensor = torch.tensor(np.array(samples_pil)).permute(2,0,1)
 
-            samples_pil.save(os.path.join(samples_dir, f'{fname}.{f_ext}'))
             # STEP: Save the concat result
-            concat = transforms.Resize([256, 528])(torch.cat([src_pil.detach().cpu(),
-                                                     target_pil.detach().cpu(),
-                                                     samples_pil.detach().cpu()], 2))
+            concat = transforms.Resize([256, 528])(torch.cat([src_tensor.detach().cpu(),
+                                                     target_tensor.detach().cpu(),
+                                                     samples_tensor.detach().cpu()], 2))
             transforms.ToPILImage()(concat).save(os.path.join(concat_dir, f'{fname}.{f_ext}'))
 
 if __name__ == "__main__":
@@ -269,8 +269,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Description of your program.")
     parser.add_argument("data_csv_fp", type=str, help="Data csv file path containing the file paths of style and pose image for each sample.")
     parser.add_argument("project_name", type=str, default=formatted_timestamp, help="Folder name to store outputs under.")
-    parser.add_argument("sample_algorithm", type=str, default="ddim", help="Sampling algorithm to use.")
-    parser.add_argument("nsteps", type=int, default=100, help="Number of sampling steps in sampling algorithm.")
+    parser.add_argument("--sample_algorithm", type=str, default="ddim", help="Sampling algorithm to use.")
+    parser.add_argument("--nsteps", type=int, default=100, help="Number of sampling steps in sampling algorithm.")
     args = parser.parse_args()
 
     obj = Predictor()
@@ -278,3 +278,7 @@ if __name__ == "__main__":
                              args.project_name,
                              sample_algorithm=args.sample_algorithm,
                              nsteps=args.nsteps)
+    
+    '''
+    srun -p rtx3090_slab -n 1 --job-name=test --gres=gpu:1 --kill-on-bad-exit=1 python3 -u demo_batch_predict_pose.py data/benchmark-test-pairs.csv 251224-benchmark-test --sample_algorithm=ddim --nsteps=100
+    '''
